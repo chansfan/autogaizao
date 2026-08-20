@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     "KEYWORDS": "最大生命,火焰抗性,攻击速度,暴击率",
     "MAX_ATTEMPTS": "1000",
     "CLICK_DELAY": "0.05",
-    "HOVER_DELAY": "0.2",
+    "HOVER_DELAY": "0.1",          # 悬停等待已缩短
     "START_HOTKEY": "F6",
     "STOP_HOTKEY": "F7",
     "EXIT_HOTKEY": "F8",
@@ -74,6 +74,10 @@ start_event = threading.Event()
 stop_event = threading.Event()
 exit_event = threading.Event()
 
+root = None
+status_label = None
+keyword_entry = None
+
 def safe_click(pos, button='left'):
     x, y = pos
     pyautogui.moveTo(x + random.randint(-2, 2), y + random.randint(-2, 2), duration=0.03)
@@ -83,16 +87,16 @@ def safe_click(pos, button='left'):
 
 def use_alt():
     safe_click(ALT_POS, button='right')
-    time.sleep(0.1)
+    time.sleep(0.1)               # 右键到左键间隔固定 0.1
     safe_click(EQUIP_POS, button='left')
-    time.sleep(HOVER_DELAY)
+    time.sleep(0.1)               # 悬停等待缩短为 0.1 秒（原来用 HOVER_DELAY，现在直接固定）
 
 def get_item_text():
     pyautogui.moveTo(EQUIP_POS[0], EQUIP_POS[1], duration=0.03)
-    time.sleep(0.05)
+    time.sleep(0.02)              # 悬停稳定时间缩短
     pyperclip.copy('')
     pyautogui.hotkey('ctrl', 'c')
-    time.sleep(0.1)
+    time.sleep(0.05)              # 复制等待缩短
     return pyperclip.paste()
 
 def check_keywords(text):
@@ -106,12 +110,6 @@ def check_keywords(text):
 def write_log(msg):
     with open('craft_log.txt', 'a', encoding='utf-8') as f:
         f.write(msg + '\n')
-
-def show_message(title, msg):
-    root = tk.Tk()
-    root.withdraw()
-    messagebox.showinfo(title, msg)
-    root.destroy()
 
 def craft_loop():
     while not exit_event.is_set():
@@ -127,73 +125,49 @@ def craft_loop():
             write_log(f"第 {attempts+1} 次尝试，物品信息：\n{text}\n")
             if found:
                 write_log(f"✅ 命中关键词：{kw}，停止！")
-                show_message("洗词条工具", f"已找到目标词条：{kw}")
+                root.after(0, lambda: messagebox.showinfo("洗词条工具", f"已找到目标词条：{kw}"))
                 break
             attempts += 1
             time.sleep(random.uniform(0.05, 0.1))
         if not stop_event.is_set() and not exit_event.is_set() and attempts >= MAX_ATTEMPTS:
             write_log("❌ 达到最大尝试次数，未找到目标词条")
-            show_message("洗词条工具", "未找到目标词条")
-        # 更新界面状态
-        window.after(0, update_status, "就绪")
+            root.after(0, lambda: messagebox.showinfo("洗词条工具", "未找到目标词条"))
+        root.after(0, update_status, "就绪")
 
-def start_craft():
+def update_status(text):
+    if status_label:
+        status_label.config(text=text)
+
+def start_craft_from_ui():
+    global KEYWORDS
+    keywords_str = keyword_entry.get().strip()
+    if not keywords_str:
+        messagebox.showwarning("提示", "请输入关键词")
+        return
+    KEYWORDS = parse_keywords(keywords_str)
+    update_status("运行中...")
+    print("开始，关键词：", KEYWORDS)
+    start_event.set()
+
+def start_craft_hotkey():
     if not start_event.is_set():
-        # 从输入框读取关键词并更新
-        global KEYWORDS
-        keywords_str = keyword_entry.get().strip()
-        if not keywords_str:
-            messagebox.showwarning("提示", "请输入关键词")
-            return
-        KEYWORDS = parse_keywords(keywords_str)
-        # 更新状态
         update_status("运行中...")
-        print("收到开始指令，关键词：", KEYWORDS)
+        print("热键开始，关键词：", KEYWORDS)
         start_event.set()
 
 def stop_craft():
     print("收到停止指令")
     stop_event.set()
-    update_status("已停止")
 
 def exit_program():
     print("退出程序")
     exit_event.set()
     stop_event.set()
     start_event.set()
-    # 关闭窗口
-    root.quit()
-    root.destroy()
+    if root:
+        root.quit()
+        root.destroy()
     os._exit(0)
-
-def update_status(text):
-    status_label.config(text=text)
-
-# ==================== 创建窗口 ====================
-root = tk.Tk()
-root.title("洗词条工具")
-root.geometry("350x180")
-root.resizable(False, False)
-
-# 关键词输入行
-tk.Label(root, text="目标词条（用英文逗号分隔）:").pack(pady=(15,5))
-keyword_entry = tk.Entry(root, width=40)
-keyword_entry.insert(0, cfg["KEYWORDS"])  # 默认填入配置中的关键词
-keyword_entry.pack(pady=(0,10))
-
-# 按钮行
-btn_frame = tk.Frame(root)
-btn_frame.pack(pady=5)
-start_btn = tk.Button(btn_frame, text="开始 (F6)", width=10, command=start_craft)
-start_btn.grid(row=0, column=0, padx=5)
-stop_btn = tk.Button(btn_frame, text="停止 (F7)", width=10, command=stop_craft)
-stop_btn.grid(row=0, column=1, padx=5)
-exit_btn = tk.Button(btn_frame, text="退出 (F8)", width=10, command=exit_program)
-exit_btn.grid(row=0, column=2, padx=5)
-
-# 状态标签
-status_label = tk.Label(root, text="就绪", fg="blue")
-status_label.pack(pady=(10,0))
 
 # ==================== 托盘图标 ====================
 def create_image():
@@ -203,10 +177,18 @@ def create_image():
     d.text((28, 28), "C", fill=(0, 0, 0))
     return img
 
+def show_window():
+    if root:
+        root.deiconify()
+
+def hide_window():
+    if root:
+        root.withdraw()
+
 def setup_tray():
     menu = pystray.Menu(
         pystray.MenuItem("显示窗口", show_window),
-        pystray.MenuItem("开始 (F6)", start_craft),
+        pystray.MenuItem("开始 (F6)", start_craft_hotkey),
         pystray.MenuItem("停止 (F7)", stop_craft),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出", exit_program)
@@ -214,35 +196,44 @@ def setup_tray():
     icon = pystray.Icon("craft_tool", create_image(), "洗词条工具", menu)
     return icon
 
-def show_window():
-    root.deiconify()  # 显示窗口
-
-def hide_window():
-    root.withdraw()  # 隐藏窗口
-
-# 窗口关闭时隐藏到托盘而不是退出
-root.protocol('WM_DELETE_WINDOW', hide_window)
-
-# ==================== 主函数 ====================
 def main():
-    # 注册全局快捷键
-    keyboard.add_hotkey(START_HOTKEY, start_craft)
+    global root, status_label, keyword_entry
+
+    root = tk.Tk()
+    root.title("洗词条工具")
+    root.geometry("350x180")
+    root.resizable(False, False)
+
+    tk.Label(root, text="目标词条（用英文逗号分隔）:").pack(pady=(15,5))
+    keyword_entry = tk.Entry(root, width=40)
+    keyword_entry.insert(0, cfg["KEYWORDS"])
+    keyword_entry.pack(pady=(0,10))
+
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(pady=5)
+    tk.Button(btn_frame, text="开始 (F6)", width=10, command=start_craft_from_ui).grid(row=0, column=0, padx=5)
+    tk.Button(btn_frame, text="停止 (F7)", width=10, command=stop_craft).grid(row=0, column=1, padx=5)
+    tk.Button(btn_frame, text="退出 (F8)", width=10, command=exit_program).grid(row=0, column=2, padx=5)
+
+    status_label = tk.Label(root, text="就绪", fg="blue")
+    status_label.pack(pady=(10,0))
+
+    root.protocol('WM_DELETE_WINDOW', hide_window)
+
+    keyboard.add_hotkey(START_HOTKEY, start_craft_hotkey)
     keyboard.add_hotkey(STOP_HOTKEY, stop_craft)
     keyboard.add_hotkey(EXIT_HOTKEY, exit_program)
 
     print(f"洗词条工具已启动，关键词：{KEYWORDS}")
     print(f"按 {START_HOTKEY} 开始，按 {STOP_HOTKEY} 停止，按 {EXIT_HOTKEY} 退出")
 
-    # 启动洗词条后台循环
     t = threading.Thread(target=craft_loop, daemon=True)
     t.start()
 
-    # 启动系统托盘图标（在另一个线程中）
     tray_icon = setup_tray()
     tray_thread = threading.Thread(target=tray_icon.run, daemon=True)
     tray_thread.start()
 
-    # 运行 tkinter 主循环
     root.mainloop()
 
 if __name__ == '__main__':
