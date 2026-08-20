@@ -17,7 +17,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyautogui pyperclip keyboard pyinstaller
+          pip install pyautogui pyperclip keyboard pystray pillow pyinstaller
 
       - name: Build EXE
         run: |
