@@ -78,23 +78,23 @@ stop_event = threading.Event()
 
 def safe_click(pos, button='left'):
     x, y = pos
-    pyautogui.moveTo(x + random.randint(-3, 3), y + random.randint(-3, 3), duration=0.15)
-    time.sleep(random.uniform(0.1, 0.3))
+    pyautogui.moveTo(x + random.randint(-2, 2), y + random.randint(-2, 2), duration=0.05)
+    time.sleep(random.uniform(0.05, 0.1))
     pyautogui.click(button=button)
     time.sleep(CLICK_DELAY)
 
 def use_alt():
     safe_click(ALT_POS, button='right')
-    time.sleep(0.3)
+    time.sleep(0.1)
     safe_click(EQUIP_POS, button='left')
     time.sleep(HOVER_DELAY)
 
 def get_item_text():
-    pyautogui.moveTo(EQUIP_POS[0], EQUIP_POS[1], duration=0.2)
-    time.sleep(0.3)
+    pyautogui.moveTo(EQUIP_POS[0], EQUIP_POS[1], duration=0.1)
+    time.sleep(0.1)
     pyperclip.copy('')
     pyautogui.hotkey('ctrl', 'c')
-    time.sleep(0.5)
+    time.sleep(0.2)
     return pyperclip.paste()
 
 def check_keywords(text):
@@ -132,7 +132,7 @@ def craft_loop():
                 show_message("洗词条工具", f"已找到目标词条：{kw}")
                 break
             attempts += 1
-            time.sleep(random.uniform(0.5, 1.0))
+            time.sleep(random.uniform(0.15, 0.3))
         if not stop_event.is_set() and attempts >= MAX_ATTEMPTS:
             write_log("❌ 达到最大尝试次数，未找到目标词条")
             show_message("洗词条工具", "未找到目标词条")
