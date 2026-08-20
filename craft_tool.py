@@ -8,14 +8,17 @@ import keyboard
 import tkinter as tk
 from tkinter import messagebox
 
-# ==================== 默认配置（如果 config.txt 不存在则使用） ====================
+import pystray
+from PIL import Image, ImageDraw
+
+# ==================== 默认配置 ====================
 DEFAULT_CONFIG = {
     "ALT_POS": "142,360",          # 改造石坐标
     "EQUIP_POS": "449,604",        # 装备坐标
-    "KEYWORDS": "最大生命,火焰抗性,攻击速度,暴击率",  # 关键词，英文逗号分隔
+    "KEYWORDS": "最大生命,火焰抗性,攻击速度,暴击率",
     "MAX_ATTEMPTS": "1000",
-    "CLICK_DELAY": "0.8",
-    "HOVER_DELAY": "0.6",
+    "CLICK_DELAY": "0.05",         # 点击后等待，已调低
+    "HOVER_DELAY": "0.2",          # 悬停等待，与复制等待合计约0.4秒判断时间
     "START_HOTKEY": "F6",
     "STOP_HOTKEY": "F7",
     "EXIT_HOTKEY": "F8",
@@ -23,9 +26,7 @@ DEFAULT_CONFIG = {
 
 CONFIG_FILE = "config.txt"
 
-# ==================== 配置文件读写 ====================
 def load_config():
-    """从 config.txt 读取配置，如果不存在则创建默认配置"""
     config = DEFAULT_CONFIG.copy()
     if not os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -51,15 +52,12 @@ def load_config():
         return config
 
 def parse_coord(s):
-    """将 "x,y" 字符串解析为 (x, y) 元组"""
     parts = s.split(",")
     return (int(parts[0].strip()), int(parts[1].strip()))
 
 def parse_keywords(s):
-    """将逗号分隔的关键词字符串解析为列表，忽略空项"""
     return [kw.strip() for kw in s.split(",") if kw.strip()]
 
-# ==================== 加载配置 ====================
 cfg = load_config()
 ALT_POS = parse_coord(cfg["ALT_POS"])
 EQUIP_POS = parse_coord(cfg["EQUIP_POS"])
@@ -71,30 +69,30 @@ START_HOTKEY = cfg["START_HOTKEY"]
 STOP_HOTKEY = cfg["STOP_HOTKEY"]
 EXIT_HOTKEY = cfg["EXIT_HOTKEY"]
 
-# ==================== 全局事件 ====================
 pyautogui.FAILSAFE = True
 start_event = threading.Event()
 stop_event = threading.Event()
 
 def safe_click(pos, button='left'):
     x, y = pos
-    pyautogui.moveTo(x + random.randint(-2, 2), y + random.randint(-2, 2), duration=0.05)
-    time.sleep(random.uniform(0.05, 0.1))
+    # 移动时间极短
+    pyautogui.moveTo(x + random.randint(-2, 2), y + random.randint(-2, 2), duration=0.03)
+    time.sleep(random.uniform(0.02, 0.05))  # 点击前微延迟
     pyautogui.click(button=button)
     time.sleep(CLICK_DELAY)
 
 def use_alt():
     safe_click(ALT_POS, button='right')
-    time.sleep(0.1)
+    time.sleep(0.1)               # 右键后到左键的间隔，按你要求固定0.1
     safe_click(EQUIP_POS, button='left')
-    time.sleep(HOVER_DELAY)
+    time.sleep(HOVER_DELAY)       # 悬停等待（0.2秒）
 
 def get_item_text():
-    pyautogui.moveTo(EQUIP_POS[0], EQUIP_POS[1], duration=0.1)
-    time.sleep(0.1)
+    pyautogui.moveTo(EQUIP_POS[0], EQUIP_POS[1], duration=0.03)
+    time.sleep(0.05)              # 悬停稳定
     pyperclip.copy('')
     pyautogui.hotkey('ctrl', 'c')
-    time.sleep(0.2)
+    time.sleep(0.1)               # 复制等待，合计约0.15秒，加上HOVER_DELAY共约0.35-0.4秒
     return pyperclip.paste()
 
 def check_keywords(text):
@@ -132,7 +130,7 @@ def craft_loop():
                 show_message("洗词条工具", f"已找到目标词条：{kw}")
                 break
             attempts += 1
-            time.sleep(random.uniform(0.15, 0.3))
+            time.sleep(random.uniform(0.05, 0.1))  # 循环间隔约0.1秒
         if not stop_event.is_set() and attempts >= MAX_ATTEMPTS:
             write_log("❌ 达到最大尝试次数，未找到目标词条")
             show_message("洗词条工具", "未找到目标词条")
@@ -153,15 +151,36 @@ def exit_program():
     start_event.set()
     os._exit(0)
 
+# ==================== 托盘图标 ====================
+def create_image():
+    img = Image.new('RGB', (64, 64), color=(60, 60, 60))
+    d = ImageDraw.Draw(img)
+    d.rectangle([16, 16, 48, 48], fill=(200, 150, 50))
+    d.text((28, 28), "C", fill=(0, 0, 0))
+    return img
+
+def setup_tray():
+    menu = pystray.Menu(
+        pystray.MenuItem("开始洗装备 (F6)", start_craft),
+        pystray.MenuItem("停止洗装备 (F7)", stop_craft),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("退出", exit_program)
+    )
+    icon = pystray.Icon("craft_tool", create_image(), "洗词条工具", menu)
+    return icon
+
 def main():
     keyboard.add_hotkey(START_HOTKEY, start_craft)
     keyboard.add_hotkey(STOP_HOTKEY, stop_craft)
     keyboard.add_hotkey(EXIT_HOTKEY, exit_program)
     print(f"洗词条工具已启动，关键词：{KEYWORDS}")
     print(f"按 {START_HOTKEY} 开始，按 {STOP_HOTKEY} 停止，按 {EXIT_HOTKEY} 退出")
+
     t = threading.Thread(target=craft_loop, daemon=True)
     t.start()
-    keyboard.wait()
+
+    icon = setup_tray()
+    icon.run()
 
 if __name__ == '__main__':
     main()
